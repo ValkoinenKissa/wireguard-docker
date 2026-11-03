@@ -1,78 +1,213 @@
 # wireguard-docker
 
-Dockerized WireGuard VPN server based on the `linuxserver/wireguard` image.
-Intended for remote access to an internal LAN (e.g. home network) over UDP,
-as a lower-latency alternative to slow VPN protocols over TCP.
+Self-hosted WireGuard VPN server deployed with Docker Compose, using [wg-easy](https://github.com/wg-easy/wg-easy) v15 for VPN and peer management, and [Caddy](https://caddyserver.com/) as a reverse proxy for the web administration interface.
+
+Designed for secure remote access to a private LAN using **split tunneling**. Only traffic destined for explicitly configured networks is routed through the VPN; regular Internet traffic continues to use the client's existing connection.
+
+## Architecture
+
+The deployment consists of two services:
+
+| Service | Purpose |
+|---|---|
+| `wg-easy` | WireGuard VPN server and web-based peer management. |
+| `caddy` | Reverse proxy for the wg-easy administration interface. |
+
+### Network design
+
+- WireGuard listens on UDP port `51820`.
+- The administration interface listens internally on TCP port `51821`.
+- Caddy exposes the administration interface over HTTP on the host's LAN address.
+- The administration interface is not directly published to the Internet.
+- Docker bridge networks isolate VPN traffic from the reverse proxy network.
+- VPN clients use split tunneling to access the private LAN.
+
+flowchart TD
+    Internet((Internet))
+    Router[Home Router]
+    Host[Linux Docker Host<br>10.0.0.10]
+
+    Internet --> Router
+    Router -->|UDP 51820| Host
+
+    subgraph Docker["Docker Environment"]
+        WG[wg-easy<br>UDP 51820<br>TCP 51821]
+        Caddy[Caddy<br>TCP 80]
+
+        Caddy -->|HTTP :51821| WG
+    end
+
+    Host --> WG
+    Host --> Caddy
+
+    LAN[Private LAN<br>10.0.0.0/24]
+    WG -->|VPN traffic| LAN
+
+    Client[Remote VPN Client]
+    Client -->|WireGuard tunnel| Router
 
 ## Requirements
 
-- Linux host with Docker and Docker Compose
-- A UDP port (default `51820`) open on the firewall/router and forwarded to the host
+- Linux host with Docker Engine and Docker Compose v2.
+- WireGuard kernel module available on the host.
+- Publicly reachable IPv4 address (or an equivalent reachable endpoint).
+- UDP port `51820` forwarded from the router to the Docker host.
+- A static or DHCP-reserved LAN address for the Docker host.
 
 ## Quick start
 
-1. Copy the environment template and fill it in:
-```bash
+1. Clone the repository:
+
+   ```bash
+   git clone <repository-url>
+   cd wireguard-docker
+   ```
+
+2. Create the environment file:
+
+   ```bash
    cp .env.example .env
-```
-2. Start the container:
-```bash
+   ```
+
+3. Configure the environment variables in `.env`.
+
+4. Ensure the WireGuard kernel module is available:
+
+   ```bash
+   sudo modprobe wireguard
+   ```
+
+5. Validate the Compose configuration:
+
+   ```bash
+   docker compose config --quiet
+   ```
+
+6. Start the services:
+
+   ```bash
+   docker compose pull
    docker compose up -d
-```
-3. Collect the generated client configs from `./config/peer*/`.
-4. Deliver each `.conf` to its user through a secure channel (never through this repo).
-5. On the client, import the `.conf` into the WireGuard app and activate the tunnel.
-6. Test with `ping` to a host on the LAN.
+   ```
+
+7. Open the wg-easy administration interface from the LAN:
+
+   ```text
+   http://<SERVER_LAN_IP>
+   ```
+
+8. Create and configure VPN peers through the wg-easy web interface.
+
+9. Import the generated client configuration into the WireGuard application.
+
+10. Test connectivity to a host on the private LAN.
 
 ## Configuration
 
+Configuration is managed through Docker Compose and environment variables.
+
 | Variable | Description |
 |---|---|
-| `TZ` | Time zone (e.g. `Europe/Madrid`) |
-| `SERVERURL` | Public IP or DNS name of the server |
-| `SERVERPORT` | Public UDP port |
-| `PEERS` | Number of client configs to generate |
-| `INTERNAL_SUBNET` | Tunnel subnet (e.g. `10.13.13.0`) |
-| `ALLOWEDIPS` | Networks routed through the tunnel (tunnel subnet + LAN to reach) |
+| `SERVER_LAN_IP` | LAN address of the Docker host. |
+| `WG_HOST` | Public IPv4 address or DNS name used by VPN clients. |
+| `WG_PORT` | Public WireGuard UDP port. |
+| `WG_SUBNET` | Docker network subnet used by the WireGuard container. |
+| `PROXY_SUBNET` | Docker network subnet used by Caddy and the administration interface. |
 
-Using only the tunnel subnet and the target LAN in `ALLOWEDIPS` gives a split
-tunnel: only that traffic goes through the VPN, not all the client's traffic.
+Additional wg-easy settings, including `INSECURE`, `DISABLE_IPV6` and `TRUSTED_PROXIES`, are configured in `compose.yaml`.
 
-## Managing peers
+Do not commit `.env` or any file containing private keys or credentials.
 
-- Add peers: increase `PEERS` in `.env`, then run
-  `docker compose up -d --force-recreate`.
-- Revoke a peer: remove it from `PEERS`/config and recreate the container,
-  or regenerate the configuration.
+## Client configuration
 
-## Troubleshooting
+Configure client peers through the wg-easy administration interface.
 
-```bash
-docker logs wireguard
-docker exec wireguard wg show
+For split tunneling, configure the client's `AllowedIPs` to include only the networks that should be reachable through the VPN.
+
+Example:
+
+```ini
+AllowedIPs = 10.0.0.0/24
 ```
 
-- No handshake: check the UDP port forwarding and that `SERVERURL` is reachable.
-- Handshake OK but no traffic to the LAN: the destination hosts must be able to
-  reply to the tunnel subnet (NAT/masquerade on the VPN host, or a static route
-  on the router).
-- Slow or odd behavior: check the MTU (try lowering it in the client config).
-- Do not connect another VPN to the same subnet at the same time; routes will clash.
+Do not use `0.0.0.0/0` unless full-tunnel routing is explicitly intended.
 
-## Security
+The WireGuard tunnel subnet can also be included if communication between VPN clients is required.
 
-- `config/` and `.env` contain private keys and network details. Both are in `.gitignore`.
-- Never commit `.conf` files or QR codes.
-- If a key is committed by mistake, regenerate all keys and rewrite the Git history;
-  deleting it in a later commit is not enough.
-- Keep the repository private if it contains details of an internal network.
+## Router configuration
+
+Configure a single port forwarding rule:
+
+| Protocol | External port | Internal address | Internal port |
+|---|---:|---|---:|
+| UDP | 51820 | `<SERVER_LAN_IP>` | 51820 |
+
+Do not forward TCP ports `80`, `443` or `51821` to the Docker host.
+
+The administration interface should remain accessible only from trusted networks.
+
+## Security considerations
+
+- WireGuard encrypts VPN traffic using its own cryptographic protocol.
+- The wg-easy administration interface uses HTTP in this deployment and must not be exposed to untrusted networks.
+- `INSECURE=true` allows the web interface to operate without HTTPS; it does not disable WireGuard encryption.
+- The wg-easy administration interface is reachable through Caddy, not through a directly published host port.
+- Keep `.env`, WireGuard private keys, peer configurations and backups out of version control.
+- Do not commit client `.conf` files or QR codes.
+- Restrict Docker container capabilities to those required for operation.
+- Keep Docker images updated and review release notes before upgrading wg-easy.
+
+## Maintenance
+
+Check service status:
+
+```bash
+docker compose ps
+```
+
+View logs:
+
+```bash
+docker compose logs -f wg-easy
+docker compose logs -f caddy
+```
+
+Inspect WireGuard status:
+
+```bash
+docker exec wg-easy wg show
+```
+
+Validate configuration:
+
+```bash
+docker compose config --quiet
+```
+
+Update images:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+Back up the persistent `etc_wireguard` Docker volume before performing upgrades or making significant configuration changes.
 
 ## Repository structure
 
-```
-.
-├── docker-compose.yml
+```text
+wireguard-docker/
+├── config/
+│   └── Caddyfile
+├── scripts/
+├── .env
 ├── .env.example
 ├── .gitignore
+├── compose.yaml
+├── LICENSE
 └── README.md
 ```
+
+## License
+
+See [LICENSE](LICENSE).
