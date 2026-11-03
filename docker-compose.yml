@@ -1,44 +1,70 @@
+name: wireguard-stack
+
 volumes:
   etc_wireguard:
 
 services:
   wg-easy:
-    #environment:
-    #  Optional:
-    #  - PORT=51821
-    #  - HOST=0.0.0.0
-    #  - INSECURE=false
-
     image: ghcr.io/wg-easy/wg-easy:15
     container_name: wg-easy
-    networks:
-      wg:
-        ipv4_address: 10.42.42.42
-        ipv6_address: fdcc:ad94:bacf:61a3::2a
+
+    environment:
+      PORT: "51821"
+      INSECURE: "true"
+      DISABLE_IPV6: "true"
+      HOST: "0.0.0.0"
+      TRUSTED_PROXIES: "172.30.0.2"
+
     volumes:
       - etc_wireguard:/etc/wireguard
-      - /lib/modules:/lib/modules:ro
+
     ports:
       - "51820:51820/udp"
-      - "51821:51821/tcp"
+
     restart: unless-stopped
+
     cap_add:
       - NET_ADMIN
-      - SYS_MODULE
-      # - NET_RAW # ⚠️ Uncomment if using Podman
+     
     sysctls:
       - net.ipv4.ip_forward=1
       - net.ipv4.conf.all.src_valid_mark=1
-      - net.ipv6.conf.all.disable_ipv6=0
-      - net.ipv6.conf.all.forwarding=1
-      - net.ipv6.conf.default.forwarding=1
+
+    networks:
+      wg:
+        interface_name: eth0
+        ipv4_address: 10.42.42.42
+        gw_priority: 1
+
+      proxy:
+        interface_name: eth1
+        ipv4_address: 172.30.0.3
+        gw_priority: 0
+  caddy:
+     image: caddy:2-alpine
+     container_name: caddy
+
+     ports:
+       - "10.0.0.10:80:80/tcp"
+
+     volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+
+     restart: unless-stopped
+
+     networks:
+      proxy:
+        ipv4_address: 172.30.0.2
 
 networks:
   wg:
     driver: bridge
-    enable_ipv6: true
     ipam:
-      driver: default
       config:
         - subnet: 10.42.42.0/24
-        - subnet: fdcc:ad94:bacf:61a3::/64
+
+  proxy:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
