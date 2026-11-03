@@ -22,6 +22,10 @@ The deployment consists of two services:
 - Docker bridge networks isolate VPN traffic from the reverse proxy network.
 - VPN clients use split tunneling to access the private LAN.
 
+## Architecture
+
+```mermaid
+
 flowchart TD
     Internet((Internet))
     Router[Home Router]
@@ -45,6 +49,7 @@ flowchart TD
 
     Client[Remote VPN Client]
     Client -->|WireGuard tunnel| Router
+```
 
 ## Requirements
 
