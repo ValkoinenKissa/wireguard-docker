@@ -2,6 +2,8 @@ name: wireguard-stack
 
 volumes:
   etc_wireguard:
+  caddy_data:
+  caddy_config:
 
 services:
   wg-easy:
@@ -12,14 +14,13 @@ services:
       PORT: "51821"
       INSECURE: "true"
       DISABLE_IPV6: "true"
-      HOST: "0.0.0.0"
-      TRUSTED_PROXIES: "172.30.0.2"
+      TRUSTED_PROXIES: "${CADDY_DOCKER_IP}"
 
     volumes:
       - etc_wireguard:/etc/wireguard
 
     ports:
-      - "51820:51820/udp"
+      - "${SERVER_LAN_IP}:${WG_PUBLIC_PORT}:51820/udp"
 
     restart: unless-stopped
 
@@ -33,38 +34,40 @@ services:
     networks:
       wg:
         interface_name: eth0
-        ipv4_address: 10.42.42.42
+        ipv4_address: "${WG_DOCKER_IP}"
         gw_priority: 1
 
       proxy:
         interface_name: eth1
-        ipv4_address: 172.30.0.3
+        ipv4_address: "${WG_PROXY_IP}"
         gw_priority: 0
   caddy:
      image: caddy:2-alpine
      container_name: caddy
 
      ports:
-       - "10.0.0.10:80:80/tcp"
+       - "${SERVER_LAN_IP}:${CADDY_HTTPS_PORT}:443/tcp"
 
      volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
      restart: unless-stopped
 
      networks:
       proxy:
-        ipv4_address: 172.30.0.2
+        ipv4_address: "${CADDY_DOCKER_IP}"
 
 networks:
   wg:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.42.42.0/24
+        - subnet: "${WG_DOCKER_SUBNET}"
 
   proxy:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.30.0.0/24
+        - subnet: "${WG_DOCKER_SUBNET}"
