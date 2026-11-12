@@ -18,6 +18,7 @@ services:
 
     volumes:
       - etc_wireguard:/etc/wireguard
+      - /lib/modules:/lib/modules:ro
 
     ports:
       - "${SERVER_LAN_IP}:${WG_PUBLIC_PORT}:51820/udp"
@@ -26,6 +27,7 @@ services:
 
     cap_add:
       - NET_ADMIN
+      - SYS_MODULE
      
     sysctls:
       - net.ipv4.ip_forward=1
