@@ -49,7 +49,7 @@ services:
        - "${SERVER_LAN_IP}:${CADDY_HTTPS_PORT}:443/tcp"
 
      volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./config/Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
 
@@ -70,4 +70,4 @@ networks:
     driver: bridge
     ipam:
       config:
-        - subnet: "${WG_DOCKER_SUBNET}"
+        - subnet: "${PROXY_SUBNET}"
