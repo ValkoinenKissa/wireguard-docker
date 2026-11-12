@@ -1,0 +1,73 @@
+name: wireguard-stack
+
+volumes:
+  etc_wireguard:
+  caddy_data:
+  caddy_config:
+
+services:
+  wg-easy:
+    image: ghcr.io/wg-easy/wg-easy:15
+    container_name: wg-easy
+
+    environment:
+      PORT: "51821"
+      INSECURE: "true"
+      DISABLE_IPV6: "true"
+      TRUSTED_PROXIES: "${CADDY_DOCKER_IP}"
+
+    volumes:
+      - etc_wireguard:/etc/wireguard
+
+    ports:
+      - "${SERVER_LAN_IP}:${WG_PUBLIC_PORT}:51820/udp"
+
+    restart: unless-stopped
+
+    cap_add:
+      - NET_ADMIN
+     
+    sysctls:
+      - net.ipv4.ip_forward=1
+      - net.ipv4.conf.all.src_valid_mark=1
+
+    networks:
+      wg:
+        interface_name: eth0
+        ipv4_address: "${WG_DOCKER_IP}"
+        gw_priority: 1
+
+      proxy:
+        interface_name: eth1
+        ipv4_address: "${WG_PROXY_IP}"
+        gw_priority: 0
+  caddy:
+     image: caddy:2-alpine
+     container_name: caddy
+
+     ports:
+       - "${SERVER_LAN_IP}:${CADDY_HTTPS_PORT}:443/tcp"
+
+     volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+     restart: unless-stopped
+
+     networks:
+      proxy:
+        ipv4_address: "${CADDY_DOCKER_IP}"
+
+networks:
+  wg:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "${WG_DOCKER_SUBNET}"
+
+  proxy:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "${WG_DOCKER_SUBNET}"

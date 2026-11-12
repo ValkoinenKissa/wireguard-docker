@@ -1,4 +1,18 @@
-config/
+# Environment variables
 .env
-*.conf
-*.png
+
+# WireGuard configuration and private keys
+wireguard/
+etc_wireguard/
+
+# Backups
+backups/
+*.tar
+*.tar.gz
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

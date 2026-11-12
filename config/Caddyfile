@@ -1,0 +1,5 @@
+https://localhost {
+    bind 0.0.0.0
+    tls internal
+    reverse_proxy wg-easy:51821
+}
